@@ -5,7 +5,7 @@
 
 Gem::Specification.new do |s|
   s.name = %q{ruby_tube}
-  s.version = "0.3.4"
+  s.version = "0.4.0"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["Mike Green"]
@@ -27,6 +27,8 @@ Gem::Specification.new do |s|
      "lib/yt_comment.rb",
      "lib/yt_rating.rb",
      "lib/yt_video.rb",
+     "lib/yt_user.rb",
+     "lib/yt_message.rb",
      "ruby_tube.gemspec",
      "test/josh_walking.mp4",
      "test/maddie.mp4",
