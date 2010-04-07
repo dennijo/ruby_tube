@@ -6,35 +6,46 @@ require "httparty"
 require "time"
 
 class YTClient
-	attr_accessor :username, :password, :developer_key, :token, :client
+	attr_accessor :ctoken, :csecret, :developer_key, :token, :client
 	include HTTParty
 	
 	base_uri "http://gdata.youtube.com/feeds/api"
 	format :plain
 	
 	UPLOAD_URI = "http://uploads.gdata.youtube.com/feeds/api/users/default/uploads"
-	
-	def initialize(username, password, key, options={:refresh=>300})
-		@username = username
-		@password = password
-		@developer_key = key
-		@client = GData::Client::YouTube.new
-		@client.source = "acer_timeline_contest"
-		@client.developer_key = @developer_key
-		@token = @client.clientlogin(@username, @password)
-		@options = options
-	end
-	
+
+  def initialize(ctoken, csecret, developer_key,options={})
+      @ctoken, @csecret, @consumer_options, @developer_key = ctoken, csecret, options,developer_key
+  end
+
+  def consumer
+    @client = OAuth::Consumer.new(@ctoken,@csecret,{
+        :site=>"https://www.google.com",
+        :request_token_path=>"/accounts/OAuthGetRequestToken",
+        :authorize_path=>"/accounts/OAuthAuthorizeToken",
+        :access_token_path=>"/accounts/OAuthGetAccessToken"})
+  end
+
+  def request_token(callback)
+    @request_token = consumer.get_request_token({:oauth_callback=>"#{callback}"},{:scope=>"http://gdata.youtube.com"})
+  end
+
+  def access_token
+    @access_token ||= ::OAuth::AccessToken.new(consumer, @atoken, @asecret)
+  end
+
+  def authorize_from_request(rtoken, rsecret, verifier_or_pin)
+    request_token = OAuth::RequestToken.new(consumer, rtoken, rsecret)
+    access_token = request_token.get_access_token(:oauth_verifier => verifier_or_pin)
+    @atoken, @asecret = access_token.token, access_token.secret
+  end
+
+  def authorize_from_access(atoken, asecret)
+    @atoken, @asecret = atoken, asecret
+  end
+
 	def all
-		if @all_vids
-			if Time.parse((@all_vids/"updated").text) < (Time.now - @options[:refresh])
-				@all_vids = Hpricot.XML(@client.get(self.class.base_uri + "/users/default/uploads").body)
-			else
-				return @all_vids
-			end
-		else
-			@all_vids = Hpricot.XML(@client.get(self.class.base_uri + "/users/default/uploads").body)
-		end
+    @all_vids = Hpricot.XML(access_token.get(self.class.base_uri + "/users/default/uploads").body)
 	end
 	
 	def count
@@ -42,11 +53,11 @@ class YTClient
 	end
 	
 	def check_video(id)
-		Hpricot.XML(@client.get(self.class.base_uri + "/videos/#{id}").body)
+		Hpricot.XML(access_token.get(self.class.base_uri + "/videos/#{id}").body)
 	end
 	
 	def ratings(id)
-		response = Hpricot.XML(@client.get(self.class.base_uri + "/videos/#{id}").body)
+		response = Hpricot.XML(access_token.get(self.class.base_uri + "/videos/#{id}").body)
 		ratings = (response/"gd:rating")
 		if ratings.nitems > 0
 			return ratings
@@ -56,7 +67,7 @@ class YTClient
 	end
 	
 	def comments(id)
-		Hpricot.XML(@client.get(self.class.base_uri + "/videos/#{id}/comments").body)
+		Hpricot.XML(access_token.get(self.class.base_uri + "/videos/#{id}/comments").body)
 	end
 	
 	def upload(file, options={})
@@ -94,24 +105,61 @@ REQDATA
 			'GData-Version' => "2",
 			'X-GData-Key' => "key=#{@developer_key}",
 			'Slug' => File.basename(file),
-			'Authorization' => "GoogleLogin auth=#{@token}",
 			'Content-Type' => 'multipart/related; boundary="bbe873dc"',
 			'Content-Length' => binary_data.length.to_s,
 			'Connection' => 'close'
 		}
-		res = http.post(upload_uri.path, request_data, headers)
+		res = access_token.post(UPLOAD_URI, request_data, headers)
 		response = {:code => res.code, :body => Hpricot.XML(res.body)}
 		return response
 	end
+
+  def add(id,comment)
+		comment_uri = self.class.base_uri + "/videos/#{id}/comments"
+		request_data = '<?xml version="1.0" encoding="UTF-8"?>
+<entry xmlns="http://www.w3.org/2005/Atom"
+    xmlns:yt="http://gdata.youtube.com/schemas/2007">
+  <content>'+"#{comment}+"+'</content>
+</entry>'
+		headers = {
+			'GData-Version' => "2",
+			'Content-Type' => 'application/atom+xml',
+			'X-GData-Key' => "key=#{@developer_key}",
+			'Content-Length' => comment.length.to_s,
+		}
+		res = access_token.post(comment_uri, request_data, headers)
+		response = {:code => res.code, :body => Hpricot.XML(res.body)}
+		return response
+  end
 	
 	def update(id, xml)
-		response = @client.put(self.class.base_uri + "/users/default/uploads/#{id}", xml)
+		response = access_token.put(self.class.base_uri + "/users/default/uploads/#{id}", xml)
 	end
 	
 	def delete(id)
-		response = @client.delete(self.class.base_uri + "/users/default/uploads/#{id}")
+		response = access_token.delete(self.class.base_uri + "/users/default/uploads/#{id}")
 	end
-	
+
+  def get_user(id)
+    response = Hpricot.XML(access_token.get(self.class.base_uri + "/users/#{id}").body)
+  end
+
+  def get_subscriptions(id)
+    response = Hpricot.XML(access_token.get(self.class.base_uri + "/users/#{id}/subscriptions").body)
+  end
+
+  def get_new_subscription_videos(id)
+    response = Hpricot.XML(access_token.get(self.class.base_uri + "/users/#{id}/newsubscriptionvideos?v=2").body)
+  end
+
+  def get_contacts(id)
+    response = Hpricot.XML(access_token.get(self.class.base_uri + "/users/#{id}/contacts?v=2").body)
+  end
+
+  def inbox
+    response = Hpricot.XML(access_token.get(self.class.base_uri + "/users/default/inbox").body)
+  end
+
 	private
 	def read_file(file)
 		contents = File.open(file, "r") {|io| io.read }

@@ -1,6 +1,6 @@
 class YTVideo
 
-	attr_reader :id, :duration, :player_uri, :thumbnails, :published_at, :updated_at, :ratings_uri, :comments_uri, :view_count, :favorite_count, :comment_count, :ratings, :comments, :status
+	attr_reader :id, :duration, :player_uri, :thumbnails, :published_at, :updated_at, :ratings_uri, :comments_uri, :view_count, :favorite_count, :comment_count, :ratings, :comments, :status, :published_by,:published_by_uri,:comments_allowed,:comment_vote,:video_respond,:rate,:embed,:syndicate, :user
 	attr_accessor :title, :description, :keywords
 	
 	def initialize(data)
@@ -22,6 +22,15 @@ class YTVideo
 		@comments = data[:comments]
 		@status = data[:status]
 		@thumbnails = data[:thumbnails]
+    @published_by = data[:published_by]
+    @published_by_uri = data[:published_by_uri]
+    @comments_allowed = data[:comments_allowed]
+    @comment_vote = data[:comment_vote]
+    @video_respond = data[:video_respond]
+    @rate = data[:rate]
+    @embed = data[:embed]
+    @syndicate = data[:syndicate]
+    @user = data[:user]
 	end
 	
 	def to_xml
