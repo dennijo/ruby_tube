@@ -66,9 +66,17 @@ class YTClient
 		end
 	end
 	
-	def comments(id)
-		Hpricot.XML(access_token.get(self.class.base_uri + "/videos/#{id}/comments").body)
+	def comments(id,url=nil)
+    unless url
+      Hpricot.XML(access_token.get(self.class.base_uri + "/videos/#{id}/comments").body)
+    else
+      Hpricot.XML(access_token.get(url).body)
+    end
 	end
+
+  def categories(id)
+    Hpricot.XML(access_token.get("http://gdata.youtube.com/schemas/2007/categories.cat?"+id).body)
+  end
 	
 	def upload(file, options={})
 		upload_uri = URI.parse(UPLOAD_URI)
@@ -131,7 +139,34 @@ REQDATA
 		response = {:code => res.code, :body => Hpricot.XML(res.body)}
 		return response
   end
-	
+
+  def upload_token(title,description,category,keywords)
+    uri = "http://gdata.youtube.com/action/GetUploadToken"
+    request_data = '<?xml version="1.0"?>
+<entry xmlns="http://www.w3.org/2005/Atom"
+  xmlns:media="http://search.yahoo.com/mrss/"
+  xmlns:yt="http://gdata.youtube.com/schemas/2007">
+  <media:group>
+    <media:title type="plain">'+title+'</media:title>
+    <media:description type="plain">'+description+'
+    </media:description>
+    <media:category
+      scheme="http://gdata.youtube.com/schemas/2007/categories.cat">'+category+'
+    </media:category>
+    <media:keywords>'+keywords+'</media:keywords>
+  </media:group>
+</entry>'
+		headers = {
+			'GData-Version' => "2",
+			'Content-Type' => 'application/atom+xml; charset=UTF-8',
+			'X-GData-Key' => "key=#{@developer_key}",
+			'Content-Length' => request_data.length.to_s,
+		}
+		res = access_token.post(uri, request_data, headers)
+		response = {:code => res.code, :body => Hpricot.XML(res.body)}
+		return response
+  end
+
 	def update(id, xml)
 		response = access_token.put(self.class.base_uri + "/users/default/uploads/#{id}", xml)
 	end

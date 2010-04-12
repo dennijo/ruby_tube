@@ -37,39 +37,61 @@ class RubyTube < YTClient
 		})
 		return video
 	end
-	
+
+  def status(id)
+    xml = check_video(id)
+		entry = (xml/"entry")
+		status = (xml/"yt:state").empty? ? "ok" : (xml/"yt:state").attr("name")
+		video = YTVideo.new({
+			:id => (entry/"yt:videoid").text,
+			:status => status,
+		})
+		return video
+  end
+
 	def find_all
 		@all = all()
 		videos = Array.new
 		(all/"entry").each do |entry|
 			status = (entry/"yt:state").empty? ? "ok" : (entry/"yt:state").attr("name")
+      id = (entry/"id").empty? ? (entry/"yt:videoid").text : (entry/"id").text.gsub(/http:\/\/gdata.youtube.com\/feeds\/api\/videos\//,'')
+      ratings_uri = (entry/"link[@rel='ratings']").empty? ? '' : (entry/"link[@rel='ratings']").attr("href")
+      comments_uri = (entry/"gd:comments").search("gd:feelink").empty? ? (entry/"gd:comments").search("gd:feedLink").attr("href") : (entry/"gd:comments").search("gd:feedlink").attr("href")
+      comments_count = (entry/"gd:comments").search("gd:feelink").empty? ? (entry/"gd:comments").search("gd:feedLink").attr("countHint").to_i : (entry/"gd:comments").search("gd:feedlink").attr("countHint").to_i
+      comments_allowed = (entry/"yt:accessControl[@action='comment']").empty? ? 'Allowed' : (entry/"yt:accessControl[@action='comment']").attr("permission")
+      comment_vote = (entry/"yt:accessControl[@action='commentVote']").empty? ? 'Allowed' : (entry/"yt:accessControl[@action='commentVote']").attr("permission")
+      video_respond = (entry/"yt:accessControl[@action='videoRespond']").empty? ? 'Allowed' : (entry/"yt:accessControl[@action='videoRespond']").attr("permission")
+      rate = (entry/"yt:accessControl[@action='rate']").empty? ? 'Allowed' : (entry/"yt:accessControl[@action='rate']").attr("permission")
+      embed = (entry/"yt:accessControl[@action='embed']").empty ? 'Allowed' : (entry/"yt:accessControl[@action='embed']").attr("permission")
+      syndicate = (entry/"yt:accessControl[@action='syndicate']").empty? ? 'Allowed' : (entry/"yt:accessControl[@action='syndicate']").attr("permission")
+
 			video = YTVideo.new({
-				:id => (entry/"yt:videoid").text,
+				:id => id,
 				:title => (entry/"title").text,
 				:description => (entry/"media:description").text,
 				:keywords => (entry/"media:keywords").text,
 				:duration => (entry/"yt:duration").attr("seconds").to_i,
 				:player_uri => (entry/"link[@rel='alternate']").attr("href"),
-				:ratings_uri => (entry/"link[@rel$='ratings']").attr("href"),
-				:comments_uri => (entry/"gd:comments").search("gd:feedlink").attr("href"),
-				:comment_count => (entry/"gd:comments").search("gd:feedlink").attr("countHint").to_i,
+				:ratings_uri => ratings_uri,
+				:comments_uri => comments_uri,
+				:comment_count => comments_count,
 				:published_at => Time.parse((entry/"published").text),
 				:updated_at => Time.parse((entry/"updated").text),
 				:view_count => (entry/"yt:statistics").empty? ? 0 : (entry/"yt:statistics").attr("viewCount"),
 				:favorite_count => (entry/"yt:statistics").empty? ? 0 : (entry/"yt:statistics").attr("favoriteCount"),
-				:ratings => ratings((entry/"yt:videoid").text),
+				:ratings => ratings(id),
 				:status => status,
 				:thumbnails => process_thumbnail_urls(entry),
-        :comments_allowed => (entry/"yt:accessControl[@action='comment']").attr("permission"),
-        :comment_vote => (entry/"yt:accessControl[@action='commentVote']").attr("permission"),
-        :video_respond => (entry/"yt:accessControl[@action='videoRespond']").attr("permission"),
-        :rate => (entry/"yt:accessControl[@action='rate']").attr("permission"),
-        :embed => (entry/"yt:accessControl[@action='embed']").attr("permission"),
-        :syndicate => (entry/"yt:accessControl[@action='syndicate']").attr("permission"),
+        :comments_allowed => comments_allowed,
+        :comment_vote => comment_vote,
+        :video_respond => video_respond,
+        :rate => rate,
+        :embed => embed,
+        :syndicate => syndicate,
         :published_by => (entry/"author").search("name").text,
         :published_by_uri => (entry/"author").search("uri").text,
         :user => user((entry/"author").search("name").text),
-				:comments => get_comments((entry/"yt:videoid").text)
+				:comments => get_comments(id)
 			})
 			videos << video
 		end
@@ -102,11 +124,12 @@ class RubyTube < YTClient
 		super
 	end
 	
-	def get_comments(id)
-		xml = comments(id)
+	def get_comments(id,url=nil)
+		xml = comments(id,url)
 		comments = Array.new
 		if (xml/"entry").nitems > 0
 			(xml/"entry").each do |entry|
+        in_reply_to = (entry/"link[@rel='http://gdata.youtube.com/schemas/2007#in-reply-to']").empty? ? nil : (entry/"link[@rel='http://gdata.youtube.com/schemas/2007#in-reply-to']").attr("href")
 				comment = YTComment.new({
           :id => (entry/"id").text,
 					:title => (entry/"title").text,
@@ -114,11 +137,20 @@ class RubyTube < YTClient
 					:author => (entry/"author").search("name").text,
 					:author_uri => (entry/"author").search("uri").text,
 					:video_uri => (entry/"link[@rel='related']").attr("href"),
-          :published_at => Time.parse((entry/"published").text)
+          :published_at => Time.parse((entry/"published").text),
+          :in_reply_to => in_reply_to
 				})
 				comments << comment
 			end
+      unless (xml/"link[@rel='next']").empty?
+        next_url = (xml/"link[@rel='next']").attr("href")
+        coms = get_comments(id,next_url)
+        for com in coms
+          comments << com
+        end
+      end
 		end
+
 		return comments
 	end
 	
@@ -155,7 +187,19 @@ class RubyTube < YTClient
 			return false
 		end
 	end
-	
+
+  def get_upload_token(title,description,category,keywords='')
+    response = upload_token(title,description,category,keywords)
+    if response[:code].to_i == 200
+      xml = response[:body]
+      upload_token = {:code=>response[:code].to_i,:url=>(xml/"url").text,:token=>(xml/"token").text}
+    else
+      upload_token = {:code=>response[:code].to_i,:url=>nil,:token=>nil}
+    end
+    
+    return upload_token
+  end
+
 	def upload_video(filename, options={})
 		response = upload(filename, options)
 	end
@@ -230,6 +274,22 @@ class RubyTube < YTClient
       contacts << contact
     end
     return contacts
+  end
+
+  def get_categories(id = 'h1=en-US')
+    xml = categories(id)
+    cats = Array.new
+    (xml/"atom:category").each do |entry|
+      assignable = (entry/"yt:assignable").empty? ? false : true
+      cat = YTCategory.new({
+        :label => entry["label"],
+        :term => entry["term"],
+        :lang => entry["xml:lang"],
+        :assignable => assignable,
+      })
+      cats << cat
+    end
+    return cats
   end
 	
 	private
