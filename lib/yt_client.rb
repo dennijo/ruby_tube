@@ -114,7 +114,7 @@ REQDATA
 			'X-GData-Key' => "key=#{@developer_key}",
 			'Slug' => File.basename(file),
 			'Content-Type' => 'multipart/related; boundary="bbe873dc"',
-			'Content-Length' => binary_data.length.to_s,
+			'Content-Length' => request_data.length.to_s,
 			'Connection' => 'close'
 		}
 		res = access_token.post(UPLOAD_URI, request_data, headers)
